@@ -1,35 +1,54 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useEffect, useState } from 'react';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
+import Navigation from './components/Navigation';
+import Dashboard from './pages/Dashboard';
+import Inventory from './pages/Inventory';
+import AddItem from './pages/AddItem';
+import Bundles from './pages/Bundles';
+import CreateBundle from './pages/CreateBundle';
+import Share from './pages/Share';
+import { loadData } from './services/storageService';
+import type { AppData } from './types';
 
-function App() {
-  const [count, setCount] = useState(0)
+// Wrapper to conditionally render Navigation
+const Layout = ({ children }: { children?: React.ReactNode }) => {
+  const location = useLocation();
+  const hideNavPaths = ['/add-item', '/create-bundle'];
+  const showNav = !hideNavPaths.includes(location.pathname);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div className="font-sans text-gray-900 bg-gray-50 min-h-screen">
+      <main className={showNav ? 'pb-16' : ''}>{children}</main>
+      {showNav && <Navigation />}
+    </div>
+  );
+};
 
-export default App
+const App: React.FC = () => {
+  const [data, setData] = useState<AppData>({ items: [], bundles: [] });
+
+  const refreshData = () => {
+    setData(loadData());
+  };
+
+  useEffect(() => {
+    refreshData();
+  }, []);
+
+  return (
+    <HashRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard data={data} />} />
+          <Route path="/inventory" element={<Inventory data={data} refreshData={refreshData} />} />
+          <Route path="/add-item" element={<AddItem refreshData={refreshData} />} />
+          <Route path="/bundles" element={<Bundles data={data} refreshData={refreshData} />} />
+          <Route path="/create-bundle" element={<CreateBundle data={data} refreshData={refreshData} />} />
+          <Route path="/share" element={<Share />} />
+        </Routes>
+      </Layout>
+    </HashRouter>
+  );
+};
+
+export default App;
