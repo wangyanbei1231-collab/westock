@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, Circle, Search } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { type AppData } from '../types';
-import { addBundle } from '../services/storageService';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { AppData } from '../types';
+import { addBundle, updateBundle, getBundle } from '../services/storageService';
+import { useToast } from '../contexts/ToastContext';
 
 interface CreateBundleProps {
   data: AppData;
@@ -11,10 +13,26 @@ interface CreateBundleProps {
 
 const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('id');
+  const { showToast } = useToast();
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+
+  // 初始化：如果是编辑模式，加载数据
+  useEffect(() => {
+    if (editId) {
+        const bundle = getBundle(editId);
+        if (bundle) {
+            setName(bundle.name);
+            setDescription(bundle.description);
+            setSelectedItemIds(new Set(bundle.itemIds));
+        }
+    }
+  }, [editId]);
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedItemIds);
@@ -27,16 +45,25 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
   };
 
   const handleSave = () => {
-    if (!name) return alert("请输入组合名称");
-    if (selectedItemIds.size === 0) return alert("请至少选择一件商品");
+    if (!name) { showToast("请输入组合名称", 'error'); return; }
+    if (selectedItemIds.size === 0) { showToast("请至少选择一件商品", 'error'); return; }
 
-    addBundle({
-      id: Date.now().toString(),
+    const bundleData = {
+      id: editId || Date.now().toString(),
       name,
       description,
       itemIds: Array.from(selectedItemIds),
-      createdAt: Date.now()
-    });
+      createdAt: editId ? (getBundle(editId)?.createdAt || Date.now()) : Date.now()
+    };
+
+    if (editId) {
+        updateBundle(bundleData);
+        showToast('组合更新成功！', 'success');
+    } else {
+        addBundle(bundleData);
+        showToast('组合创建成功！', 'success');
+    }
+    
     refreshData();
     navigate('/bundles');
   };
@@ -53,7 +80,7 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
            <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-gray-600">
             <ArrowLeft size={24} />
           </button>
-          <h1 className="text-lg font-bold ml-2">新建组合</h1>
+          <h1 className="text-lg font-bold ml-2">{editId ? '编辑组合' : '新建组合'}</h1>
           <button 
             onClick={handleSave}
             className="ml-auto text-brand-600 font-bold text-sm px-3 py-1 rounded-full bg-brand-50"
@@ -96,6 +123,9 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24">
             {filteredItems.map(item => {
                 const isSelected = selectedItemIds.has(item.id);
+                // 计算该商品的总库存，方便选择时参考
+                const stockCount = Object.values(item.stock).reduce((a,b) => a+(b as number), 0);
+                
                 return (
                     <div 
                         key={item.id} 
@@ -114,7 +144,10 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
 
                         <div>
                             <h4 className={`font-medium ${isSelected ? 'text-brand-900' : 'text-gray-800'}`}>{item.name}</h4>
-                            <span className="text-xs text-gray-500">{item.category}</span>
+                            <div className="flex gap-2">
+                                <span className="text-xs text-gray-500">{item.category}</span>
+                                <span className="text-xs text-brand-600 bg-brand-50 px-1 rounded">库存: {stockCount}</span>
+                            </div>
                         </div>
                     </div>
                 )
@@ -124,7 +157,7 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
       
       {/* Selected Count Footer */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex justify-between items-center text-sm font-medium text-gray-600 shadow-lg">
-          <span>已选择 {selectedItemIds.size} 件商品</span>
+          <span>已选择 {selectedItemIds.size} 款商品</span>
       </div>
     </div>
   );
