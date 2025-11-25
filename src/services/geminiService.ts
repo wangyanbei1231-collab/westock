@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import type { AnalyzeImageResponse } from '../types';
 
@@ -34,7 +33,6 @@ export const compressImage = (file: File, targetSize = 600, quality = 0.6): Prom
         }
 
         // 2. Draw cropped and resized image
-        // drawImage(img, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
         ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, targetSize, targetSize);
         
         // 3. Compress
@@ -58,15 +56,29 @@ export const analyzeItemImage = async (base64Image: string, mimeType: string): P
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType: mimeType } },
-          { text: "Analyze this product. Return JSON with 'name' (short, Chinese) and 'category'." },
+          { 
+            // 🌟 核心升级：增加联网搜索指令
+            text: `You are an inventory manager for 'YSQUARE Bijoux'. 
+            Your task is to identify this exact product from the official website.
+            
+            Steps:
+            1. Use Google Search to find this product image on 'site:ysquarebijoux.com'.
+            2. If you find a match, use the EXACT product name from the website (e.g., "18K Gold Plated Chunky Hoop Earrings").
+            3. If no exact match is found on the website, generate a descriptive name following the brand style (Material + Shape + Type).
+            4. Determine the category (Necklace, Earrings, Ring, Bracelet, Accessory).
+
+            Return the result in JSON format.` 
+          },
         ],
       },
       config: {
+        // 🌟 启用 Google 搜索工具
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            name: { type: Type.STRING },
+            name: { type: Type.STRING, description: "The exact product name from the website" },
             category: { type: Type.STRING },
           },
           required: ["name", "category"],
@@ -76,9 +88,13 @@ export const analyzeItemImage = async (base64Image: string, mimeType: string): P
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
-    return JSON.parse(text) as AnalyzeImageResponse;
+    
+    // 清理可能存在的 markdown 标记 (```json ... ```) 尽管 responseMimeType 应该处理这个问题
+    const cleanText = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanText) as AnalyzeImageResponse;
+    
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    return { name: "未命名商品", category: "杂项" };
+    return { name: "识别失败", category: "手动输入" };
   }
 };
