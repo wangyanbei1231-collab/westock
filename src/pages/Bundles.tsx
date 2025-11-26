@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Layers, Trash2, Share2, ArrowDownToLine, Edit2, Copy } from 'lucide-react';
+import { Plus, Layers, Trash2, ArrowDownToLine, Edit2, Copy } from 'lucide-react';
 import { AppData } from '../types';
 import { deleteBundle, exportBundleToken, importBundleToken } from '../services/storageService';
 import { useToast } from '../contexts/ToastContext';
