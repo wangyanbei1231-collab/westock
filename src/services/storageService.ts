@@ -1,5 +1,5 @@
 import { AppData, InventoryItem, Bundle } from '../types';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { User } from 'firebase/auth';
 
@@ -18,7 +18,7 @@ export const setCloudUser = async (user: User | null) => {
 
 const getInitialData = (): AppData => ({ items: [], bundles: [] });
 
-// --- 云同步逻辑 (优化版) ---
+// --- 云同步逻辑 ---
 export const syncFromCloud = async () => {
     if (!currentUser) return;
     try {
@@ -26,19 +26,15 @@ export const syncFromCloud = async () => {
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
-            // 云端有数据，覆盖本地（正常同步）
             const cloudData = docSnap.data() as AppData;
             console.log("已从云端拉取数据");
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
             window.location.reload(); 
         } else {
-            // 云端是空的，检查本地是否有数据
             const localData = loadData();
             if (localData.items.length > 0 || localData.bundles.length > 0) {
-                console.log("云端为空，上传本地数据作为初始数据");
-                await syncToCloud(); // 上传本地数据
-            } else {
-                console.log("云端和本地都为空");
+                console.log("云端为空，上传本地数据");
+                await syncToCloud();
             }
         }
     } catch (e) {
@@ -54,11 +50,10 @@ const syncToCloud = async () => {
         console.log("已同步至云端");
     } catch (e) {
         console.error("Upload Error:", e);
-        throw e;
     }
 };
 
-// 手动强制同步（用于按钮调用）
+// 强制同步
 export const forceSync = async (direction: 'up' | 'down') => {
     if (!currentUser) throw new Error("未登录");
     if (direction === 'up') {
@@ -75,7 +70,7 @@ export const forceSync = async (direction: 'up' | 'down') => {
     }
 };
 
-// --- 本地存储 (自动触发上传) ---
+// --- 本地存储 ---
 export const loadData = (): AppData => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -88,7 +83,7 @@ export const loadData = (): AppData => {
 export const saveData = (data: AppData): boolean => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    if (currentUser) syncToCloud(); // 如果已登录，自动同步
+    if (currentUser) syncToCloud();
     return true;
   } catch (e: any) {
     if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
@@ -98,8 +93,7 @@ export const saveData = (data: AppData): boolean => {
   }
 };
 
-// --- 数据操作 (增删改) ---
-
+// --- 数据操作 ---
 export const addItem = (item: InventoryItem) => {
   const data = loadData();
   data.items.unshift(item);
@@ -162,7 +156,6 @@ export const deleteBundle = (id: string) => {
 }
 
 // --- 安全 & 工具 ---
-
 export const setAppPin = (pin: string) => localStorage.setItem(PIN_KEY, pin);
 export const checkAppPin = (inputPin: string) => localStorage.getItem(PIN_KEY) === inputPin;
 export const hasAppPin = () => !!localStorage.getItem(PIN_KEY);
@@ -199,30 +192,61 @@ export const importData = (jsonString: string): boolean => {
     } catch (e) { return false; }
 };
 
-export const exportBundleToken = (bundleId: string): string => {
+// --- 🔥 核心升级：短口令分享 (基于 Firebase) ---
+
+export const exportBundleToken = async (bundleId: string): Promise<string> => {
     const data = loadData();
     const bundle = data.bundles.find(b => b.id === bundleId);
     if (!bundle) return '';
+
     const relatedItems = data.items.filter(i => bundle.itemIds.includes(i.id));
-    const payload = { type: 'westock_transfer', bundle, items: relatedItems };
-    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const payload = { 
+        type: 'westock_share', 
+        bundle, 
+        items: relatedItems,
+        createdAt: new Date().toISOString()
+    };
+    
+    // 上传到 'shared_bundles' 集合，生成短 ID
+    try {
+        const docRef = await addDoc(collection(db, "shared_bundles"), payload);
+        return `WS-${docRef.id}`; // 返回类似 WS-7d82a9 的短口令
+    } catch (e) {
+        console.error("Share upload failed:", e);
+        return '';
+    }
 };
 
-export const importBundleToken = (token: string): boolean => {
+export const importBundleToken = async (token: string): Promise<boolean> => {
+    if (!token.startsWith('WS-')) return false;
+    const docId = token.replace('WS-', '');
+    
     try {
-        const jsonStr = decodeURIComponent(escape(atob(token)));
-        const payload = JSON.parse(jsonStr);
-        if (payload.type !== 'westock_transfer' || !payload.bundle || !payload.items) return false;
+        const docRef = doc(db, "shared_bundles", docId);
+        const docSnap = await getDoc(docRef);
+        
+        if (!docSnap.exists()) return false;
+        
+        const payload = docSnap.data();
+        if (payload.type !== 'westock_share' || !payload.bundle || !payload.items) return false;
+
         const data = loadData();
         
-        // Merge items (avoid duplicates)
+        // Merge items
         payload.items.forEach((newItem: InventoryItem) => {
-            if (!data.items.some(exist => exist.id === newItem.id)) data.items.unshift(newItem);
+            if (!data.items.some(exist => exist.id === newItem.id)) {
+                data.items.unshift(newItem);
+            }
         });
         // Add bundle
-        if (!data.bundles.some(b => b.id === payload.bundle.id)) data.bundles.unshift(payload.bundle);
+        if (!data.bundles.some(b => b.id === payload.bundle.id)) {
+            data.bundles.unshift(payload.bundle);
+        }
         
         saveData(data);
         return true;
-    } catch (e) { return false; }
+    } catch (e) {
+        console.error(e);
+        return false;
+    }
 };
