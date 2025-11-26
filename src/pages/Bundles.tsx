@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Layers, Trash2, ArrowDownToLine, Edit2, Copy } from 'lucide-react';
+import { Plus, Layers, Trash2, ArrowDownToLine, Edit2, Copy, X, Share2 } from 'lucide-react';
 import { AppData } from '../types';
 import { deleteBundle, exportBundleToken, importBundleToken } from '../services/storageService';
 import { useToast } from '../contexts/ToastContext';
@@ -10,6 +10,7 @@ interface BundlesProps { data: AppData; refreshData: () => void; }
 const Bundles: React.FC<BundlesProps> = ({ data, refreshData }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [shareModalToken, setShareModalToken] = useState<string | null>(null);
 
   const getBundleImages = (itemIds: string[]) => itemIds.slice(0, 3).map(id => data.items.find(i => i.id === id)?.imageUrl);
 
@@ -26,17 +27,11 @@ const Bundles: React.FC<BundlesProps> = ({ data, refreshData }) => {
       navigate(`/create-bundle?id=${id}`);
   };
 
-  const handleShare = async (e: React.MouseEvent, bundleId: string) => {
+  const handleShare = (e: React.MouseEvent, bundleId: string) => {
       e.stopPropagation();
       const token = exportBundleToken(bundleId);
       if (!token) { showToast('生成口令失败', 'error'); return; }
-      try {
-          await navigator.clipboard.writeText(token);
-          showToast('✨ 口令已复制！\n数据仍然保留，快去粘贴给朋友吧。', 'success');
-      } catch (err) {
-          const manualCopy = window.prompt("无法自动复制，请长按全选下方乱码进行复制：", token);
-          if (manualCopy) showToast('请手动粘贴发给朋友', 'info');
-      }
+      setShareModalToken(token);
   };
 
   const handleImport = () => {
@@ -82,7 +77,7 @@ const Bundles: React.FC<BundlesProps> = ({ data, refreshData }) => {
                   </div>
                   <div className="flex gap-1">
                      <button onClick={(e) => handleEdit(e, bundle.id)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="编辑"><Edit2 size={16} /></button>
-                    <button onClick={(e) => handleShare(e, bundle.id)} className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-full transition-colors" title="复制分享口令"><Copy size={16} /></button>
+                    <button onClick={(e) => handleShare(e, bundle.id)} className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-full transition-colors" title="复制分享口令"><Share2 size={16} /></button>
                     <button onClick={(e) => handleDelete(e, bundle.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={16} /></button>
                   </div>
                 </div>
@@ -103,6 +98,38 @@ const Bundles: React.FC<BundlesProps> = ({ data, refreshData }) => {
         )}
       </div>
       <button onClick={() => navigate('/create-bundle')} className="fixed bottom-20 right-4 w-14 h-14 bg-brand-600 text-white rounded-full shadow-lg shadow-brand-500/30 flex items-center justify-center hover:bg-brand-700 active:scale-95 transition-all z-20"><Plus size={28} /></button>
+
+      {/* Share Token Modal */}
+      {shareModalToken && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+              <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out]">
+                  <div className="bg-brand-600 p-4 flex justify-between items-center">
+                      <h3 className="text-white font-bold flex items-center gap-2"><Share2 size={20} /> 分享组合</h3>
+                      <button onClick={() => setShareModalToken(null)} className="text-white/80 hover:text-white bg-white/10 rounded-full p-1"><X size={20} /></button>
+                  </div>
+                  <div className="p-6">
+                      <p className="text-sm text-gray-600 mb-3">复制下方口令，发送给朋友：</p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-4 relative group">
+                          <textarea 
+                            readOnly 
+                            value={shareModalToken} 
+                            className="w-full h-24 bg-transparent text-xs text-gray-500 font-mono break-all resize-none focus:outline-none"
+                            onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                          />
+                          <div className="absolute bottom-2 right-2 text-[10px] text-gray-400">长按全选复制</div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                            navigator.clipboard.writeText(shareModalToken).then(() => showToast('已复制到剪贴板', 'success'));
+                        }}
+                        className="w-full bg-brand-600 text-white font-bold py-3 rounded-xl hover:bg-brand-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                      >
+                          <Copy size={18} /> 一键复制
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };

@@ -18,7 +18,7 @@ export const setCloudUser = async (user: User | null) => {
 
 const getInitialData = (): AppData => ({ items: [], bundles: [] });
 
-// --- 云同步逻辑 ---
+// --- 云同步逻辑 (优化版) ---
 export const syncFromCloud = async () => {
     if (!currentUser) return;
     try {
@@ -26,11 +26,20 @@ export const syncFromCloud = async () => {
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
+            // 云端有数据，覆盖本地（正常同步）
             const cloudData = docSnap.data() as AppData;
+            console.log("已从云端拉取数据");
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
-            window.location.reload(); // 简单粗暴但有效：刷新页面加载新数据
+            window.location.reload(); 
         } else {
-            await syncToCloud(); // 新用户，上传本地数据作为初始数据
+            // 云端是空的，检查本地是否有数据
+            const localData = loadData();
+            if (localData.items.length > 0 || localData.bundles.length > 0) {
+                console.log("云端为空，上传本地数据作为初始数据");
+                await syncToCloud(); // 上传本地数据
+            } else {
+                console.log("云端和本地都为空");
+            }
         }
     } catch (e) {
         console.error("Sync Error:", e);
@@ -45,6 +54,24 @@ const syncToCloud = async () => {
         console.log("已同步至云端");
     } catch (e) {
         console.error("Upload Error:", e);
+        throw e;
+    }
+};
+
+// 手动强制同步（用于按钮调用）
+export const forceSync = async (direction: 'up' | 'down') => {
+    if (!currentUser) throw new Error("未登录");
+    if (direction === 'up') {
+        await syncToCloud();
+    } else {
+        const docRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(docSnap.data()));
+            window.location.reload();
+        } else {
+            throw new Error("云端没有数据");
+        }
     }
 };
 
