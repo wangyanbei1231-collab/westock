@@ -1,5 +1,5 @@
 import { AppData, InventoryItem, Bundle } from '../types';
-import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, writeBatch, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import type { User } from 'firebase/auth';
 
@@ -8,12 +8,9 @@ const PIN_KEY = 'we_stock_pin';
 
 let currentUser: User | null = null;
 
-// 设置当前用户并触发同步
 export const setCloudUser = async (user: User | null) => {
     currentUser = user;
-    if (user) {
-        await syncFromCloud();
-    }
+    if (user) await syncFromCloud();
 };
 
 const getInitialData = (): AppData => ({ items: [], bundles: [] });
@@ -31,9 +28,10 @@ export const syncFromCloud = async () => {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
             window.location.reload(); 
         } else {
+            // 智能合并：云端无数据但本地有数据，自动上传
             const localData = loadData();
             if (localData.items.length > 0 || localData.bundles.length > 0) {
-                console.log("云端为空，上传本地数据");
+                console.log("云端为空，上传本地数据初始化");
                 await syncToCloud();
             }
         }
@@ -50,10 +48,10 @@ const syncToCloud = async () => {
         console.log("已同步至云端");
     } catch (e) {
         console.error("Upload Error:", e);
+        throw e;
     }
 };
 
-// 强制同步
 export const forceSync = async (direction: 'up' | 'down') => {
     if (!currentUser) throw new Error("未登录");
     if (direction === 'up') {
@@ -65,7 +63,7 @@ export const forceSync = async (direction: 'up' | 'down') => {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(docSnap.data()));
             window.location.reload();
         } else {
-            throw new Error("云端没有数据");
+            throw new Error("云端没有数据 (请检查是否登录了同一账号)");
         }
     }
 };
@@ -75,9 +73,7 @@ export const loadData = (): AppData => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : getInitialData();
-  } catch (e) {
-    return getInitialData();
-  }
+  } catch (e) { return getInitialData(); }
 };
 
 export const saveData = (data: AppData): boolean => {
@@ -87,112 +83,32 @@ export const saveData = (data: AppData): boolean => {
     return true;
   } catch (e: any) {
     if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-      alert("⚠️ 存储空间已满！请删除部分数据。");
+      alert("⚠️ 存储空间已满！建议清理图片或删除旧数据。");
     }
     return false;
   }
 };
 
-// --- 数据操作 ---
-export const addItem = (item: InventoryItem) => {
-  const data = loadData();
-  data.items.unshift(item);
-  return saveData(data);
-};
+// --- CRUD Operations (Standard) ---
+export const addItem = (item: InventoryItem) => { const d = loadData(); d.items.unshift(item); return saveData(d); };
+export const updateItem = (item: InventoryItem) => { const d = loadData(); const i = d.items.findIndex(x => x.id === item.id); if(i!==-1) d.items[i]=item; return saveData(d); };
+export const getItem = (id: string) => loadData().items.find(i => i.id === id);
+export const deleteItem = (id: string) => { const d = loadData(); d.items = d.items.filter(i => i.id !== id); d.bundles = d.bundles.map(b => ({...b, itemIds: b.itemIds.filter(x => x !== id)})); saveData(d); return d; };
+export const addBundle = (bundle: Bundle) => { const d = loadData(); d.bundles.unshift(bundle); saveData(d); return d; };
+export const updateBundle = (bundle: Bundle) => { const d = loadData(); const i = d.bundles.findIndex(b => b.id === bundle.id); if(i!==-1) d.bundles[i]=bundle; return saveData(d); };
+export const getBundle = (id: string) => loadData().bundles.find(b => b.id === id);
+export const deleteBundle = (id: string) => { const d = loadData(); d.bundles = d.bundles.filter(b => b.id !== id); saveData(d); return d; };
 
-export const updateItem = (updatedItem: InventoryItem) => {
-  const data = loadData();
-  const index = data.items.findIndex(i => i.id === updatedItem.id);
-  if (index !== -1) {
-    data.items[index] = updatedItem;
-    return saveData(data);
-  }
-  return false;
-};
-
-export const getItem = (id: string) => {
-    const data = loadData();
-    return data.items.find(i => i.id === id);
-}
-
-export const deleteItem = (id: string) => {
-    const data = loadData();
-    data.items = data.items.filter(i => i.id !== id);
-    data.bundles = data.bundles.map(b => ({
-        ...b,
-        itemIds: b.itemIds.filter(itemId => itemId !== id)
-    }));
-    saveData(data);
-    return data;
-};
-
-export const addBundle = (bundle: Bundle) => {
-  const data = loadData();
-  data.bundles.unshift(bundle);
-  saveData(data);
-  return data;
-};
-
-export const updateBundle = (updatedBundle: Bundle) => {
-  const data = loadData();
-  const index = data.bundles.findIndex(b => b.id === updatedBundle.id);
-  if (index !== -1) {
-    data.bundles[index] = updatedBundle;
-    return saveData(data);
-  }
-  return false;
-};
-
-export const getBundle = (id: string) => {
-    const data = loadData();
-    return data.bundles.find(b => b.id === id);
-}
-
-export const deleteBundle = (id: string) => {
-    const data = loadData();
-    data.bundles = data.bundles.filter(b => b.id !== id);
-    saveData(data);
-    return data;
-}
-
-// --- 安全 & 工具 ---
-export const setAppPin = (pin: string) => localStorage.setItem(PIN_KEY, pin);
-export const checkAppPin = (inputPin: string) => localStorage.getItem(PIN_KEY) === inputPin;
+// --- Security ---
+export const setAppPin = (p: string) => localStorage.setItem(PIN_KEY, p);
+export const checkAppPin = (p: string) => localStorage.getItem(PIN_KEY) === p;
 export const hasAppPin = () => !!localStorage.getItem(PIN_KEY);
 export const removeAppPin = () => localStorage.removeItem(PIN_KEY);
+export const getStorageUsage = () => { try { return ((localStorage.getItem(STORAGE_KEY)||'').length*2/1024/1024).toFixed(2) + ' MB'; } catch { return '未知'; }};
+export const exportData = () => { const b = new Blob([JSON.stringify(loadData(),null,2)],{type:'application/json'}); const a = document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`westock_backup.json`; a.click(); };
+export const importData = (s: string) => { try { saveData(JSON.parse(s)); return true; } catch { return false; } };
 
-export const getStorageUsage = (): string => {
-    try {
-        const stored = localStorage.getItem(STORAGE_KEY) || '';
-        const kb = (stored.length * 2) / 1024;
-        return kb < 1024 ? `${kb.toFixed(1)} KB` : `${(kb / 1024).toFixed(2)} MB`;
-    } catch { return '未知'; }
-}
-
-export const exportData = () => {
-    const data = loadData();
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `westock_backup_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-};
-
-export const importData = (jsonString: string): boolean => {
-    try {
-        const data = JSON.parse(jsonString);
-        if (!Array.isArray(data.items) || !Array.isArray(data.bundles)) throw new Error("Format error");
-        saveData(data);
-        return true;
-    } catch (e) { return false; }
-};
-
-// --- 🔥 核心升级：短口令分享 (基于 Firebase) ---
+// --- 🔥 核心升级：大文件分片分享 (Split & Batch) ---
 
 export const exportBundleToken = async (bundleId: string): Promise<string> => {
     const data = loadData();
@@ -200,17 +116,30 @@ export const exportBundleToken = async (bundleId: string): Promise<string> => {
     if (!bundle) return '';
 
     const relatedItems = data.items.filter(i => bundle.itemIds.includes(i.id));
-    const payload = { 
-        type: 'westock_share', 
-        bundle, 
-        items: relatedItems,
-        createdAt: new Date().toISOString()
-    };
     
-    // 上传到 'shared_bundles' 集合，生成短 ID
     try {
-        const docRef = await addDoc(collection(db, "shared_bundles"), payload);
-        return `WS-${docRef.id}`; // 返回类似 WS-7d82a9 的短口令
+        // 1. 创建分享主文档
+        const shareRef = doc(collection(db, "shared_bundles"));
+        const batch = writeBatch(db);
+
+        // 2. 写入元数据 (不含大图片)
+        batch.set(shareRef, {
+            type: 'westock_share_v2', // 标记为 V2 版本
+            bundle,
+            itemCount: relatedItems.length,
+            createdAt: new Date().toISOString()
+        });
+
+        // 3. 将每个 Item 作为独立的文档写入子集合 'items'
+        // 这绕过了单文档 1MB 的限制
+        relatedItems.forEach(item => {
+            const itemRef = doc(collection(db, "shared_bundles", shareRef.id, "items"));
+            batch.set(itemRef, item);
+        });
+
+        // 4. 提交所有写入
+        await batch.commit();
+        return `WS-${shareRef.id}`;
     } catch (e) {
         console.error("Share upload failed:", e);
         return '';
@@ -222,25 +151,38 @@ export const importBundleToken = async (token: string): Promise<boolean> => {
     const docId = token.replace('WS-', '');
     
     try {
+        // 1. 获取元数据
         const docRef = doc(db, "shared_bundles", docId);
         const docSnap = await getDoc(docRef);
         
         if (!docSnap.exists()) return false;
+        const meta = docSnap.data();
         
-        const payload = docSnap.data();
-        if (payload.type !== 'westock_share' || !payload.bundle || !payload.items) return false;
+        // 兼容 V1 (旧版单文档) 和 V2 (新版分片)
+        let itemsToImport: InventoryItem[] = [];
 
+        if (meta.type === 'westock_share') {
+            // V1: Items 都在主文档里
+            itemsToImport = meta.items || [];
+        } else {
+            // V2: Items 在子集合里
+            const itemsSnapshot = await getDocs(collection(db, "shared_bundles", docId, "items"));
+            itemsSnapshot.forEach(doc => {
+                itemsToImport.push(doc.data() as InventoryItem);
+            });
+        }
+
+        // 2. 合并数据到本地
         const data = loadData();
         
-        // Merge items
-        payload.items.forEach((newItem: InventoryItem) => {
+        itemsToImport.forEach((newItem) => {
             if (!data.items.some(exist => exist.id === newItem.id)) {
                 data.items.unshift(newItem);
             }
         });
-        // Add bundle
-        if (!data.bundles.some(b => b.id === payload.bundle.id)) {
-            data.bundles.unshift(payload.bundle);
+        
+        if (meta.bundle && !data.bundles.some(b => b.id === meta.bundle.id)) {
+            data.bundles.unshift(meta.bundle);
         }
         
         saveData(data);

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Download, Upload, Database, Lock, ShieldCheck, ChevronRight, LogIn, LogOut, Cloud, Mail, Key, RefreshCw } from 'lucide-react';
+import { Download, Upload, Database, Lock, ShieldCheck, ChevronRight, LogIn, LogOut, Cloud, Mail, Key, RefreshCw, Copy } from 'lucide-react';
 import { exportData, importData, getStorageUsage, setAppPin, hasAppPin, removeAppPin, forceSync } from '../services/storageService';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -71,6 +71,9 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
       } finally { setLoading(false); }
   };
 
+  // 截取 UID 后6位用于显示
+  const shortUid = currentUser ? currentUser.uid.slice(-6).toUpperCase() : '';
+
   return (
     <div className="min-h-screen bg-gray-50 pb-safe-area">
       <div className="bg-gray-900 text-white p-6 pt-10 pb-16 rounded-b-[2.5rem] shadow-sm relative overflow-hidden">
@@ -79,7 +82,16 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
                 {currentUser?.photoURL ? <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" /> : <span className="text-xl font-bold">{currentUser ? (currentUser.displayName?.[0] || currentUser.email?.[0] || 'U').toUpperCase() : '访'}</span>}
             </div>
             <div>
-                {currentUser ? <><h1 className="text-xl font-bold">{currentUser.displayName || currentUser.email?.split('@')[0] || '用户'}</h1><p className="text-gray-400 text-sm flex items-center gap-1"><Cloud size={12} className="text-green-400" /> 已连接云端</p></> : <><h1 className="text-xl font-bold">访客模式</h1><p className="text-gray-400 text-sm">数据仅保存在本地</p></>}
+                {currentUser ? (
+                    <>
+                        <h1 className="text-xl font-bold">{currentUser.displayName || currentUser.email?.split('@')[0] || '用户'}</h1>
+                        <p className="text-gray-400 text-xs flex items-center gap-1 mt-1 font-mono bg-white/10 px-2 py-0.5 rounded-full w-fit">
+                            ID: {shortUid}
+                        </p>
+                    </>
+                ) : (
+                    <><h1 className="text-xl font-bold">访客模式</h1><p className="text-gray-400 text-sm">数据仅保存在本地</p></>
+                )}
             </div>
         </div>
         <div className="absolute top-8 right-6">
@@ -89,7 +101,6 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
 
       <div className="px-4 -mt-10 space-y-4 pb-24 relative z-20">
         
-        {/* Sync Controls (Only visible when logged in) */}
         {currentUser && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2"><RefreshCw size={18} className={`text-brand-600 ${syncing ? 'animate-spin' : ''}`} /><h2 className="font-bold text-gray-800">云端同步控制</h2></div>
@@ -97,6 +108,7 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
                     <button onClick={() => handleForceSync('up')} className="flex-1 py-2 bg-gray-50 hover:bg-brand-50 text-brand-700 text-xs font-bold rounded-lg border border-transparent hover:border-brand-200 transition-all">↑ 强制上传 (本机→云端)</button>
                     <button onClick={() => handleForceSync('down')} className="flex-1 py-2 bg-gray-50 hover:bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-transparent hover:border-blue-200 transition-all">↓ 强制拉取 (云端→本机)</button>
                 </div>
+                <div className="px-4 pb-2 text-[10px] text-gray-400 text-center">若两端数据不一致，请核对上方 ID 是否相同</div>
             </div>
         )}
 
@@ -104,6 +116,7 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
              <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2"><ShieldCheck size={18} className="text-brand-600" /><h2 className="font-bold text-gray-800">隐私与安全</h2></div>
              <div className="p-0"><button onClick={handlePinSetting} className="w-full px-4 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"><div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasPin ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}><Lock size={20} /></div><div className="text-left"><span className="block text-sm font-bold text-gray-800">应用锁</span><span className="block text-xs text-gray-500">{hasPin ? '已开启 (点击管理)' : '未开启 (点击设置)'}</span></div></div><ChevronRight size={16} className="text-gray-300" /></button></div>
         </div>
+        
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
              <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2"><Database size={18} className="text-blue-600" /><h2 className="font-bold text-gray-800">数据管理</h2></div>
              <div className="p-4 grid grid-cols-2 gap-4">
@@ -113,9 +126,11 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
              </div>
              <div className="px-4 py-2 bg-gray-50 text-[10px] text-gray-400 text-center">已用空间: {storageUsed}</div>
         </div>
+
         {!currentUser && <div className="p-4 bg-yellow-50 text-yellow-800 text-xs rounded-xl border border-yellow-100 text-center">提示：当前为访客模式，数据仅保存在本机。<br/>建议登录以启用多设备同步。</div>}
       </div>
 
+      {/* Login Modal */}
       {showLoginModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-[scaleIn_0.2s_ease-out]">
