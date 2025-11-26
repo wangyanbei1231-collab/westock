@@ -1,5 +1,5 @@
 import { AppData, InventoryItem, Bundle } from '../types';
-import { doc, getDoc, setDoc, collection, writeBatch, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, writeBatch, getDocs, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { User } from 'firebase/auth';
 
@@ -89,7 +89,7 @@ export const saveData = (data: AppData): boolean => {
   }
 };
 
-// --- CRUD Operations (Standard) ---
+// --- CRUD Operations ---
 export const addItem = (item: InventoryItem) => { const d = loadData(); d.items.unshift(item); return saveData(d); };
 export const updateItem = (item: InventoryItem) => { const d = loadData(); const i = d.items.findIndex(x => x.id === item.id); if(i!==-1) d.items[i]=item; return saveData(d); };
 export const getItem = (id: string) => loadData().items.find(i => i.id === id);
@@ -118,28 +118,26 @@ export const exportBundleToken = async (bundleId: string): Promise<string> => {
     const relatedItems = data.items.filter(i => bundle.itemIds.includes(i.id));
     
     try {
-        // 1. 创建分享主文档
-        const shareRef = doc(collection(db, "shared_bundles"));
-        const batch = writeBatch(db);
-
-        // 2. 写入元数据 (不含大图片)
-        batch.set(shareRef, {
+        // 1. 创建分享主文档 (自动生成 ID)
+        const shareRef = await addDoc(collection(db, "shared_bundles"), {
             type: 'westock_share_v2', // 标记为 V2 版本
             bundle,
             itemCount: relatedItems.length,
             createdAt: new Date().toISOString()
         });
 
-        // 3. 将每个 Item 作为独立的文档写入子集合 'items'
-        // 这绕过了单文档 1MB 的限制
+        // 2. 使用 Batch 将每个 Item 写入子集合
+        // Firestore Batch 最多 500 个操作，如果商品超多需要分批，但一般组合够用了
+        const batch = writeBatch(db);
         relatedItems.forEach(item => {
+            // 在 shared_bundles/{shareId}/items 下创建文档
             const itemRef = doc(collection(db, "shared_bundles", shareRef.id, "items"));
             batch.set(itemRef, item);
         });
 
-        // 4. 提交所有写入
+        // 3. 提交所有写入
         await batch.commit();
-        return `WS-${shareRef.id}`;
+        return `WS-${shareRef.id}`; // 返回短口令
     } catch (e) {
         console.error("Share upload failed:", e);
         return '';
@@ -158,29 +156,26 @@ export const importBundleToken = async (token: string): Promise<boolean> => {
         if (!docSnap.exists()) return false;
         const meta = docSnap.data();
         
-        // 兼容 V1 (旧版单文档) 和 V2 (新版分片)
         let itemsToImport: InventoryItem[] = [];
 
-        if (meta.type === 'westock_share') {
-            // V1: Items 都在主文档里
-            itemsToImport = meta.items || [];
-        } else {
+        if (meta.type === 'westock_share_v2') {
             // V2: Items 在子集合里
             const itemsSnapshot = await getDocs(collection(db, "shared_bundles", docId, "items"));
             itemsSnapshot.forEach(doc => {
                 itemsToImport.push(doc.data() as InventoryItem);
             });
+        } else {
+             // 兼容旧版 (如果有)
+             itemsToImport = meta.items || [];
         }
 
         // 2. 合并数据到本地
         const data = loadData();
-        
         itemsToImport.forEach((newItem) => {
             if (!data.items.some(exist => exist.id === newItem.id)) {
                 data.items.unshift(newItem);
             }
         });
-        
         if (meta.bundle && !data.bundles.some(b => b.id === meta.bundle.id)) {
             data.bundles.unshift(meta.bundle);
         }

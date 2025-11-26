@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Download, Upload, Database, Lock, ShieldCheck, ChevronRight, LogIn, LogOut, Cloud, Mail, Key, RefreshCw, Copy } from 'lucide-react';
+import { Download, Upload, Database, Lock, ShieldCheck, ChevronRight, LogIn, LogOut, Cloud, Mail, Key, RefreshCw } from 'lucide-react';
 import { exportData, importData, getStorageUsage, setAppPin, hasAppPin, removeAppPin, forceSync } from '../services/storageService';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -71,7 +71,7 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
       } finally { setLoading(false); }
   };
 
-  // 截取 UID 后6位用于显示
+  // 显示用户ID后6位，用于核对
   const shortUid = currentUser ? currentUser.uid.slice(-6).toUpperCase() : '';
 
   return (
@@ -86,7 +86,7 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
                     <>
                         <h1 className="text-xl font-bold">{currentUser.displayName || currentUser.email?.split('@')[0] || '用户'}</h1>
                         <p className="text-gray-400 text-xs flex items-center gap-1 mt-1 font-mono bg-white/10 px-2 py-0.5 rounded-full w-fit">
-                            ID: {shortUid}
+                            ID: {shortUid} <Cloud size={10} className="text-green-400 ml-1" />
                         </p>
                     </>
                 ) : (

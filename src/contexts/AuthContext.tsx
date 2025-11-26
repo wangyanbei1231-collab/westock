@@ -1,23 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User, 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  signOut, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword 
-} from 'firebase/auth';
+import { User, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, googleProvider } from '../services/firebase';
 import { setCloudUser } from '../services/storageService';
 
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
-  login: () => Promise<void>; // Google Login
+  login: () => Promise<void>;
   logout: () => Promise<void>;
-  // New Email Auth Methods
-  signupEmail: (email: string, pass: string) => Promise<void>;
-  loginEmail: (email: string, pass: string) => Promise<void>;
+  signupEmail: (e: string, p: string) => Promise<void>;
+  loginEmail: (e: string, p: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,30 +24,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Google Login (PC/Mobile Browser)
-  const login = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      console.error("Google Login failed", error);
-      // Don't alert here, let UI handle it or show specific message
-      throw error; 
-    }
-  };
-
-  // Email Signup (WeChat Compatible)
-  const signupEmail = async (email: string, pass: string) => {
-      await createUserWithEmailAndPassword(auth, email, pass);
-  };
-
-  // Email Login (WeChat Compatible)
-  const loginEmail = async (email: string, pass: string) => {
-      await signInWithEmailAndPassword(auth, email, pass);
-  };
-
-  const logout = async () => {
-    await signOut(auth);
-  };
+  const login = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { console.error(e); throw e; } };
+  const signupEmail = async (e: string, p: string) => { await createUserWithEmailAndPassword(auth, e, p); };
+  const loginEmail = async (e: string, p: string) => { await signInWithEmailAndPassword(auth, e, p); };
+  const logout = async () => { await signOut(auth); };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
