@@ -71,7 +71,7 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
       } finally { setLoading(false); }
   };
 
-  // 显示用户ID后6位，用于核对
+  // 截取 UID 后6位用于显示
   const shortUid = currentUser ? currentUser.uid.slice(-6).toUpperCase() : '';
 
   return (

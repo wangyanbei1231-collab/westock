@@ -1,5 +1,5 @@
 import { AppData, InventoryItem, Bundle } from '../types';
-import { doc, getDoc, setDoc, collection, writeBatch, getDocs, addDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, addDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { User } from 'firebase/auth';
 
@@ -28,7 +28,6 @@ export const syncFromCloud = async () => {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
             window.location.reload(); 
         } else {
-            // 智能合并：云端无数据但本地有数据，自动上传
             const localData = loadData();
             if (localData.items.length > 0 || localData.bundles.length > 0) {
                 console.log("云端为空，上传本地数据初始化");
@@ -108,7 +107,7 @@ export const getStorageUsage = () => { try { return ((localStorage.getItem(STORA
 export const exportData = () => { const b = new Blob([JSON.stringify(loadData(),null,2)],{type:'application/json'}); const a = document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`westock_backup.json`; a.click(); };
 export const importData = (s: string) => { try { saveData(JSON.parse(s)); return true; } catch { return false; } };
 
-// --- 🔥 核心升级：大文件分片分享 (Split & Batch) ---
+// --- 🔥 核心升级：并行上传 + 单文件大小保护 (Parallel Upload) ---
 
 export const exportBundleToken = async (bundleId: string): Promise<string> => {
     const data = loadData();
@@ -118,26 +117,39 @@ export const exportBundleToken = async (bundleId: string): Promise<string> => {
     const relatedItems = data.items.filter(i => bundle.itemIds.includes(i.id));
     
     try {
-        // 1. 创建分享主文档 (自动生成 ID)
+        // 1. 创建分享主文档
         const shareRef = await addDoc(collection(db, "shared_bundles"), {
-            type: 'westock_share_v2', // 标记为 V2 版本
+            type: 'westock_share_v2',
             bundle,
             itemCount: relatedItems.length,
             createdAt: new Date().toISOString()
         });
 
-        // 2. 使用 Batch 将每个 Item 写入子集合
-        // Firestore Batch 最多 500 个操作，如果商品超多需要分批，但一般组合够用了
-        const batch = writeBatch(db);
-        relatedItems.forEach(item => {
-            // 在 shared_bundles/{shareId}/items 下创建文档
+        // 2. 并行上传每个商品 (避免 Batch 10MB 限制)
+        const uploadPromises = relatedItems.map(async (item) => {
             const itemRef = doc(collection(db, "shared_bundles", shareRef.id, "items"));
-            batch.set(itemRef, item);
+            
+            // 3. 检查单个文档大小 (Firestore 限制 1MB)
+            // 简单估算：JSON 字符串长度
+            const itemSize = new TextEncoder().encode(JSON.stringify(item)).length;
+            
+            if (itemSize > 1000000) { // 如果超过 1MB (留点余量)
+                // 策略：移除图片，保留文本信息
+                const { imageUrl, ...textOnlyItem } = item;
+                const safeItem = {
+                    ...textOnlyItem,
+                    note: (textOnlyItem.note || '') + ' [图片因过大未上传]'
+                };
+                return setDoc(itemRef, safeItem);
+            }
+            
+            return setDoc(itemRef, item);
         });
 
-        // 3. 提交所有写入
-        await batch.commit();
-        return `WS-${shareRef.id}`; // 返回短口令
+        // 等待所有商品上传完成
+        await Promise.all(uploadPromises);
+        
+        return `WS-${shareRef.id}`;
     } catch (e) {
         console.error("Share upload failed:", e);
         return '';
@@ -149,7 +161,6 @@ export const importBundleToken = async (token: string): Promise<boolean> => {
     const docId = token.replace('WS-', '');
     
     try {
-        // 1. 获取元数据
         const docRef = doc(db, "shared_bundles", docId);
         const docSnap = await getDoc(docRef);
         
@@ -159,17 +170,14 @@ export const importBundleToken = async (token: string): Promise<boolean> => {
         let itemsToImport: InventoryItem[] = [];
 
         if (meta.type === 'westock_share_v2') {
-            // V2: Items 在子集合里
             const itemsSnapshot = await getDocs(collection(db, "shared_bundles", docId, "items"));
             itemsSnapshot.forEach(doc => {
                 itemsToImport.push(doc.data() as InventoryItem);
             });
         } else {
-             // 兼容旧版 (如果有)
              itemsToImport = meta.items || [];
         }
 
-        // 2. 合并数据到本地
         const data = loadData();
         itemsToImport.forEach((newItem) => {
             if (!data.items.some(exist => exist.id === newItem.id)) {
