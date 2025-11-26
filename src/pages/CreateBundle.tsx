@@ -19,14 +19,13 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    if (editId) {
-        const bundle = getBundle(editId);
-        if (bundle) {
-            setName(bundle.name);
-            setDescription(bundle.description);
-            setSelectedItemIds(new Set(bundle.itemIds));
+    const load = async () => {
+        if (editId) {
+            const bundle = await getBundle(editId);
+            if (bundle) { setName(bundle.name); setDescription(bundle.description); setSelectedItemIds(new Set(bundle.itemIds)); }
         }
-    }
+    };
+    load();
   }, [editId]);
 
   const toggleSelection = (id: string) => {
@@ -35,25 +34,19 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
     setSelectedItemIds(newSet);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name) { showToast("请输入组合名称", 'error'); return; }
     if (selectedItemIds.size === 0) { showToast("请至少选择一件商品", 'error'); return; }
 
     const bundleData = {
       id: editId || Date.now().toString(),
-      name,
-      description,
-      itemIds: Array.from(selectedItemIds),
-      createdAt: editId ? (getBundle(editId)?.createdAt || Date.now()) : Date.now()
+      name, description, itemIds: Array.from(selectedItemIds),
+      createdAt: editId ? Date.now() : Date.now()
     };
 
-    if (editId) {
-        updateBundle(bundleData);
-        showToast('组合更新成功！', 'success');
-    } else {
-        addBundle(bundleData);
-        showToast('组合创建成功！', 'success');
-    }
+    if (editId) { await updateBundle(bundleData as any); showToast('组合更新成功！', 'success'); } 
+    else { await addBundle(bundleData); showToast('组合创建成功！', 'success'); }
+    
     refreshData();
     navigate('/bundles');
   };
@@ -63,21 +56,11 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
   return (
     <div className="h-screen flex flex-col bg-gray-50 pb-safe-area">
       <div className="bg-white px-4 py-3 shadow-sm z-10">
-        <div className="flex items-center mb-4">
-           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-gray-600"><ArrowLeft size={24} /></button>
-          <h1 className="text-lg font-bold ml-2">{editId ? '编辑组合' : '新建组合'}</h1>
-          <button onClick={handleSave} className="ml-auto text-brand-600 font-bold text-sm px-3 py-1 rounded-full bg-brand-50">保存</button>
-        </div>
-        <input type="text" placeholder="组合名称 (如: 夏季出游装)" value={name} onChange={e => setName(e.target.value)} className="w-full text-lg font-bold placeholder-gray-300 border-none focus:ring-0 p-0 mb-2" />
-        <input type="text" placeholder="添加描述..." value={description} onChange={e => setDescription(e.target.value)} className="w-full text-sm text-gray-600 placeholder-gray-300 border-none focus:ring-0 p-0" />
+        <div className="flex items-center mb-4"><button onClick={() => navigate(-1)} className="p-2 -ml-2 text-gray-600"><ArrowLeft size={24} /></button><h1 className="text-lg font-bold ml-2">{editId ? '编辑组合' : '新建组合'}</h1><button onClick={handleSave} className="ml-auto text-brand-600 font-bold text-sm px-3 py-1 rounded-full bg-brand-50">保存</button></div>
+        <input type="text" placeholder="组合名称 (如: 夏季出游装)" value={name} onChange={e => setName(e.target.value)} className="w-full text-lg font-bold placeholder-gray-300 border-none focus:ring-0 p-0 mb-2" /><input type="text" placeholder="添加描述..." value={description} onChange={e => setDescription(e.target.value)} className="w-full text-sm text-gray-600 placeholder-gray-300 border-none focus:ring-0 p-0" />
       </div>
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="p-4 bg-gray-50 border-b">
-           <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-                <input type="text" placeholder="搜索要添加的商品..." className="w-full bg-white rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-        </div>
+        <div className="p-4 bg-gray-50 border-b"><div className="relative"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} /><input type="text" placeholder="搜索要添加的商品..." className="w-full bg-white rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div></div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24">
             {filteredItems.map(item => {
                 const isSelected = selectedItemIds.has(item.id);
@@ -92,7 +75,7 @@ const CreateBundle: React.FC<CreateBundleProps> = ({ data, refreshData }) => {
             })}
         </div>
       </div>
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex justify-between items-center text-sm font-medium text-gray-600 shadow-lg"><span>已选择 {selectedItemIds.size} 件商品</span></div>
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex justify-between items-center text-sm font-medium text-gray-600 shadow-lg"><span>已选择 {selectedItemIds.size} 款商品</span></div>
     </div>
   );
 };

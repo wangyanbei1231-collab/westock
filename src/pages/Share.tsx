@@ -24,17 +24,26 @@ const Share: React.FC<ShareProps> = ({ refreshData }) => {
 
   const handleExport = () => { exportData(); showToast('备份文件下载已开始', 'success'); };
   const handleImportClick = () => { if (window.confirm('⚠️ 警告：恢复备份将覆盖当前数据！确定吗？')) fileInputRef.current?.click(); };
+  
+  // 🔥 修复：增加 async/await 处理异步导入
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (event) => {
-          if (importData(event.target?.result as string)) { showToast('数据恢复成功！', 'success'); if (refreshData) refreshData(); } 
-          else { showToast('数据文件格式错误', 'error'); }
+      reader.onload = async (event) => {
+          const content = event.target?.result as string;
+          const success = await importData(content); // 等待异步操作完成
+          if (success) { 
+              showToast('数据恢复成功！', 'success'); 
+              if (refreshData) refreshData(); 
+          } else { 
+              showToast('数据文件格式错误', 'error'); 
+          }
           if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsText(file);
   };
+
   const handlePinSetting = () => {
       if (hasPin) { if (window.confirm('确定要移除应用锁吗？')) { removeAppPin(); setHasPin(false); showToast('应用锁已移除', 'info'); } } 
       else { const p1 = prompt("请设置 6 位数字 PIN 码："); if (p1 && p1.length >= 4) { setAppPin(p1); setHasPin(true); showToast('应用锁设置成功！', 'success'); } else if (p1) { showToast('密码太短', 'error'); } }

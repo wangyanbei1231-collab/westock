@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { Lock, ArrowRight } from 'lucide-react';
+import { Lock, ArrowRight, Loader2 } from 'lucide-react';
 import Navigation from './components/Navigation';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
@@ -17,13 +17,7 @@ const LockScreen = ({ onUnlock }: { onUnlock: () => void }) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const handleUnlock = () => {
-    if (checkAppPin(pin)) {
-      onUnlock();
-    } else {
-      setError(true);
-      setPin('');
-      setTimeout(() => setError(false), 500);
-    }
+    if (checkAppPin(pin)) { onUnlock(); } else { setError(true); setPin(''); setTimeout(() => setError(false), 500); }
   };
   return (
     <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-8">
@@ -52,9 +46,19 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
 const AppContent = () => {
   const [data, setData] = useState<AppData>({ items: [], bundles: [] });
   const [isLocked, setIsLocked] = useState(hasAppPin());
-  const refreshData = () => setData(loadData());
+  const [isLoading, setIsLoading] = useState(true);
+
+  const refreshData = async () => {
+    const d = await loadData();
+    setData(d);
+    setIsLoading(false);
+  };
+
   useEffect(() => { refreshData(); }, []);
+
   if (isLocked) return <LockScreen onUnlock={() => setIsLocked(false)} />;
+  if (isLoading) return <div className="h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-brand-600" size={40} /></div>;
+
   return (
     <HashRouter>
       <Layout>
